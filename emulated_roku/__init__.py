@@ -9,6 +9,7 @@ import base64
 from .placeholder_image import APP_PLACEHOLDER_IMAGE
 from functools import partial
 import shortuuid
+import os
 
 
 USN_GENERATOR = shortuuid.ShortUUID()
@@ -267,10 +268,13 @@ def make_roku_api(loop, handler, host_ip='0.0.0.0', listen_port=8060, advertise_
 
     discovery_protocol = partial(RokuDiscoveryServerProtocol, host_ip, listen_port, roku_usn)
 
-    discovery_endpoint = loop.create_datagram_endpoint(discovery_protocol,
+    if os.name == "nt":
+        discovery_endpoint = loop.create_datagram_endpoint(discovery_protocol,
                                                        local_addr=(advertise_ip, advertise_port),
-                                                       reuse_address=True,
-                                                       allow_broadcast=True)
+                                                       reuse_address=True)
+    else:
+        discovery_endpoint = loop.create_datagram_endpoint(discovery_protocol,
+                                                       local_addr=(advertise_ip, advertise_port))
 
     app = web.Application(loop=loop)
 
