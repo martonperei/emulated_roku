@@ -4,6 +4,7 @@ import logging
 import random
 import socket
 import uuid
+import os
 from functools import partial
 
 import shortuuid
@@ -130,7 +131,7 @@ class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
                         socket.inet_aton(self.MULTICAST_GROUP) +
-                        socket.inet_aton(sock.getsockname()[0]))
+                        socket.inet_aton(self.host_ip))
 
         _LOGGER.info('multicast:started on {}/{}:{}/usn:{}'.format(self.MULTICAST_GROUP,
                                                                    self.host_ip, self.listen_port,
@@ -204,7 +205,10 @@ class RokuEventHandler:
         pass
 
 
-def make_roku_api(loop, handler, host_ip='0.0.0.0', listen_port=8060, advertise_ip=None, advertise_port=None):
+def make_roku_api(loop, handler,
+                  host_ip='0.0.0.0', listen_port=8060,
+                  advertise_ip=None, advertise_port=None,
+                  bind_multicast=True):
     advertise_ip = advertise_ip or host_ip
     advertise_port = advertise_port or listen_port
 
@@ -271,8 +275,12 @@ def make_roku_api(loop, handler, host_ip='0.0.0.0', listen_port=8060, advertise_
 
     discovery_protocol = partial(RokuDiscoveryServerProtocol,
                                  host_ip, listen_port, advertise_ip, advertise_port, roku_usn)
+
+    # do not bind multicast group on windows even if requested
+    multicast_ip = RokuDiscoveryServerProtocol.MULTICAST_GROUP if bind_multicast and os.name != "nt" else host_ip
+
     discovery_endpoint = loop.create_datagram_endpoint(discovery_protocol,
-                                                       local_addr=(host_ip, 1900),
+                                                       local_addr=(multicast_ip, 1900),
                                                        reuse_address=True)
 
     app = web.Application(loop=loop)
