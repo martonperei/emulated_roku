@@ -9,9 +9,7 @@ if __name__ == "__main__":
 
     discovery_endpoint, roku_api_endpoint = emulated_roku.make_roku_api(loop=loop,
                                                                         handler=emulated_roku.RokuEventHandler(),
-                                                                        host_ip='192.168.1.101',
-                                                                        advertise_ip='192.168.1.101')
-
+                                                                        host_ip='192.168.1.101')
     loop.run_until_complete(discovery_endpoint)
     loop.run_until_complete(roku_api_endpoint)
 

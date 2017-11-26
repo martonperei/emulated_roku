@@ -1,16 +1,15 @@
-import struct
-import random
 import asyncio
-import socket
-import logging
-from aiohttp import web
-import uuid
 import base64
-from .placeholder_image import APP_PLACEHOLDER_IMAGE
+import logging
+import random
+import socket
+import uuid
 from functools import partial
-import shortuuid
-import os
 
+import shortuuid
+from aiohttp import web
+
+from .placeholder_image import APP_PLACEHOLDER_IMAGE
 
 USN_GENERATOR = shortuuid.ShortUUID()
 
@@ -103,7 +102,7 @@ ACTIVE_APP_TEMPLATE = """<active-app>
 class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
     MULTICAST_GROUP = '239.255.255.250'
     MULTICAST_SEARCH_MSG = 'M-SEARCH * HTTP/1.1'
-    MULTICAST_RESPONSE = 'HTTP/1.1 200 OK\r\nCACHE-CONTROL: max-age = 2 \r\nLocation: http://{host_ip}:{port}/\r\nST: roku:ecp\r\nUSN: {usn}\r\n'
+    MULTICAST_RESPONSE = 'HTTP/1.1 200 OK\r\nCache-Control: max-age = 300 \r\nST: roku:ecp\r\nLocation: http://{host_ip}:{port}/\r\nUSN: {usn}\r\n'
 
     ROKU_USN_PART = "uuid:roku:ecp:{usn}"
 
@@ -112,45 +111,42 @@ class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
     listen_port = None
     roku_usn = None
 
-    def __init__(self, host_ip, listen_port, roku_usn, loop=None):
+    def __init__(self, host_ip, listen_port, advertise_ip, advertise_port, roku_usn, loop=None):
         if loop:
             self.loop = loop
         else:
             self.loop = asyncio.get_event_loop()
         self.host_ip = host_ip
         self.listen_port = listen_port
-        self.roku_usn = roku_usn
+        self.roku_usn = self.ROKU_USN_PART.format(usn=roku_usn)
+        self.upnp_response = self.MULTICAST_RESPONSE.format(host_ip=advertise_ip,
+                                                            port=advertise_port,
+                                                            usn=self.roku_usn)
 
     def connection_made(self, transport):
         self.transport = transport
 
         sock = self.transport.get_extra_info('socket')  # type: socket.socket
-
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-
-        multicast_ip = sock.getsockname()[0]
-
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
-                        struct.pack('4s4s',
-                                    socket.inet_aton(self.MULTICAST_GROUP),
-                                    socket.inet_aton(multicast_ip))
-                        )
+                        socket.inet_aton(self.MULTICAST_GROUP) +
+                        socket.inet_aton(sock.getsockname()[0]))
 
-        _LOGGER.info('multicast:{}/{}:{}/usn:{}'.format(self.MULTICAST_GROUP,
-                                                        self.host_ip, self.listen_port,
-                                                        self.roku_usn))
+        _LOGGER.info('multicast:started on {}/{}:{}/usn:{}'.format(self.MULTICAST_GROUP,
+                                                                   self.host_ip, self.listen_port,
+                                                                   self.roku_usn))
 
     def connection_lost(self, exc):
-        _LOGGER.info('multicast closed')
+        _LOGGER.info('multicast:closed on {}/{}:{}/usn:{}'.format(self.MULTICAST_GROUP,
+                                                                  self.host_ip, self.listen_port,
+                                                                  self.roku_usn))
 
     @asyncio.coroutine
     def multicast_reply(self, delay, data, addr):
         yield from asyncio.sleep(delay)
 
-        reply = self.MULTICAST_RESPONSE.format(host_ip=self.host_ip, port=self.listen_port, usn=self.roku_usn)
-
-        _LOGGER.debug("multicast:reply %s", reply)
-        self.transport.sendto(reply.encode('utf-8'), addr)
+        _LOGGER.debug("multicast:reply %s", self.upnp_response)
+        self.transport.sendto(self.upnp_response.encode('utf-8'), addr)
 
     def datagram_received(self, data, addr):
         data = data.decode('utf-8')
@@ -204,11 +200,17 @@ class RokuEventHandler:
     def on_keypress(self, roku_usn, key):
         pass
 
+    def launch(self, roku_usn, app_id):
+        pass
 
-def make_roku_api(loop, handler, host_ip='0.0.0.0', listen_port=8060, advertise_ip='0.0.0.0', advertise_port=1900):
-    roku_uuid = str(uuid.uuid5(uuid.NAMESPACE_OID, '{}:{}'.format(host_ip, listen_port)))
 
-    roku_usn = USN_GENERATOR.uuid(name="{}{}".format(host_ip, listen_port))
+def make_roku_api(loop, handler, host_ip='0.0.0.0', listen_port=8060, advertise_ip=None, advertise_port=None):
+    advertise_ip = advertise_ip or host_ip
+    advertise_port = advertise_port or listen_port
+
+    roku_uuid = str(uuid.uuid5(uuid.NAMESPACE_OID, '{}:{}'.format(advertise_ip, advertise_port)))
+
+    roku_usn = USN_GENERATOR.uuid(name="{}{}".format(advertise_ip, advertise_port))
 
     roku_info = ROKU_INFO_TEMPLATE.format(uuid=roku_uuid, usn=roku_usn)
     device_info = ROKU_DEVICE_INFO_TEMPLATE.format(uuid=roku_uuid, usn=roku_usn)
@@ -243,7 +245,8 @@ def make_roku_api(loop, handler, host_ip='0.0.0.0', listen_port=8060, advertise_
 
     @asyncio.coroutine
     def roku_launch_handler(request):
-        id = request.match_info['id']
+        app_id = request.match_info['id']
+        handler.launch(roku_usn, app_id)
         return web.Response()
 
     @asyncio.coroutine
@@ -266,15 +269,11 @@ def make_roku_api(loop, handler, host_ip='0.0.0.0', listen_port=8060, advertise_
     def roku_info_handler(request):
         return web.Response(body=device_info, headers={'Content-Type': 'text/xml'})
 
-    discovery_protocol = partial(RokuDiscoveryServerProtocol, host_ip, listen_port, roku_usn)
-
-    if os.name == "nt":
-        discovery_endpoint = loop.create_datagram_endpoint(discovery_protocol,
-                                                       local_addr=(advertise_ip, advertise_port),
+    discovery_protocol = partial(RokuDiscoveryServerProtocol,
+                                 host_ip, listen_port, advertise_ip, advertise_port, roku_usn)
+    discovery_endpoint = loop.create_datagram_endpoint(discovery_protocol,
+                                                       local_addr=(host_ip, 1900),
                                                        reuse_address=True)
-    else:
-        discovery_endpoint = loop.create_datagram_endpoint(discovery_protocol,
-                                                       local_addr=(advertise_ip, advertise_port))
 
     app = web.Application(loop=loop)
 
