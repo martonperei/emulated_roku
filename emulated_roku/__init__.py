@@ -30,7 +30,7 @@ ROKU_INFO_TEMPLATE = """<?xml version="1.0" encoding="UTF-8" ?>
     <modelNumber>4400x</modelNumber>
     <modelURL>http://www.roku.com/</modelURL>
     <serialNumber>{usn}</serialNumber>
-    <UDN>{uuid}</UDN>
+    <UDN>uuid:{uuid}</UDN>
     <serviceList>
         <service>
             <serviceType>urn:roku-com:service:ecp:1</serviceType>
