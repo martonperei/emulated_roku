@@ -123,6 +123,7 @@ class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
     host_ip = None
     listen_port = None
     roku_usn = None
+    notify_task = None # type: asyncio.Future
 
     def __init__(self, host_ip, listen_port, advertise_ip, advertise_port,
                  roku_usn, loop=None):
@@ -163,7 +164,8 @@ class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
                                                           self.listen_port,
                                                           self.roku_usn))
 
-        self.loop.create_task(self.multicast_notify(self.MUTLICAST_TTL))
+        self.notify_task = self.loop.create_task(
+            self.multicast_notify(self.MUTLICAST_TTL))
 
     def connection_lost(self, exc):
         """Clean up the protocol."""
@@ -173,22 +175,32 @@ class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
                                                          self.listen_port,
                                                          self.roku_usn))
 
+        if self.notify_task is not None and not self.notify_task.done():
+            self.notify_task.cancel()
+
     @asyncio.coroutine
     def multicast_notify(self, delay):
         """Broadcast a NOTIFY multicast message."""
         yield from asyncio.sleep(delay)
+
+        if self.transport is None or self.transport.is_closing():
+            return
 
         _LOGGER.debug("multicast:broadcast %s", self.notify_broadcast)
         self.transport.sendto(self.notify_broadcast.encode(),
                               (RokuDiscoveryServerProtocol.MULTICAST_GROUP,
                                RokuDiscoveryServerProtocol.MULTICAST_PORT))
 
-        self.loop.create_task(self.multicast_notify(self.MUTLICAST_TTL))
+        self.notify_task = self.loop.create_task(
+            self.multicast_notify(self.MUTLICAST_TTL))
 
     @asyncio.coroutine
     def multicast_reply(self, delay, data, addr):
         """Reply to a discovery message."""
         yield from asyncio.sleep(delay)
+
+        if self.transport is None or self.transport.is_closing():
+            return
 
         _LOGGER.debug("multicast:reply %s", self.upnp_response)
         self.transport.sendto(self.upnp_response.encode('utf-8'), addr)
