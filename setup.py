@@ -13,5 +13,5 @@ setup(name="emulated_roku",
       author="mindigmarton",
       license="MIT",
       packages=["emulated_roku"],
-      install_requires=["aiohttp==2.3.6", "shortuuid==0.5.0"],
+      install_requires=["aiohttp>2,<4", "shortuuid==0.5.0"],
       zip_safe=True)
