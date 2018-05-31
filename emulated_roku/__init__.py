@@ -108,7 +108,7 @@ class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
     MULTICAST_RESPONSE = "HTTP/1.1 200 OK\n" \
                          "Cache-Control: max-age = {ttl}\n" \
                          "ST: roku:ecp\n" \
-                         "Location: http://{host_ip}:{port}/\n" \
+                         "Location: http://{advertise_ip}:{advertise_port}/\n" \
                          "USN: uuid:roku:ecp:{usn}\n"
 
     MULTICAST_NOTIFY = "NOTIFY * HTTP/1.1\n" \
@@ -116,34 +116,36 @@ class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
                        "Cache-Control: max-age = {ttl}\n" \
                        "NT: upnp:rootdevice\n" \
                        "NTS: ssdp:alive\n" \
-                       "Location: http://{host_ip}:{port}/\n" \
+                       "Location: http://{advertise_ip}:{advertise_port}/\n" \
                        "USN: uuid:roku:ecp:{usn}\n"
 
     transport = None  # type: asyncio.DatagramTransport
-    host_ip = None
-    listen_port = None
+    advertise_ip = None
+    advertise_port = None
     roku_usn = None
     notify_task = None  # type: asyncio.Future
 
-    def __init__(self, host_ip, listen_port, advertise_ip,
-                 advertise_port, roku_usn, loop=None):
+    def __init__(self, host_ip, roku_usn,
+                 advertise_ip, advertise_port, loop=None):
         """Initialize the protocol."""
         if loop:
             self.loop = loop
         else:
             self.loop = asyncio.get_event_loop()
+
         self.host_ip = host_ip
-        self.listen_port = listen_port
         self.roku_usn = roku_usn
+        self.advertise_ip = advertise_ip
+        self.advertise_port = advertise_port
         self.upnp_response = self.MULTICAST_RESPONSE.format(
-            host_ip=advertise_ip,
-            port=advertise_port,
+            advertise_ip=advertise_ip,
+            advertise_port=advertise_port,
             usn=roku_usn,
             ttl=self.MUTLICAST_TTL)
 
         self.notify_broadcast = self.MULTICAST_NOTIFY.format(
-            host_ip=advertise_ip,
-            port=advertise_port,
+            advertise_ip=advertise_ip,
+            advertise_port=advertise_port,
             multicast_ip=self.MULTICAST_GROUP,
             multicast_port=self.MULTICAST_PORT,
             usn=roku_usn,
@@ -162,10 +164,10 @@ class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
                         socket.inet_aton(self.host_ip))
 
         _LOGGER.debug(
-            "multicast:started on {}/{}:{}/usn:{}".format(
+            "multicast:started for {}/{}:{}/usn:{}".format(
                 self.MULTICAST_GROUP,
-                self.host_ip,
-                self.listen_port,
+                self.advertise_ip,
+                self.advertise_port,
                 self.roku_usn))
 
         self.notify_task = self.loop.create_task(
@@ -174,10 +176,10 @@ class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
     def connection_lost(self, exc):
         """Clean up the protocol."""
         _LOGGER.debug(
-            "multicast:closed on {}/{}:{}/usn:{}".format(
+            "multicast:closed for {}/{}:{}/usn:{}".format(
                 self.MULTICAST_GROUP,
-                self.host_ip,
-                self.listen_port,
+                self.advertise_ip,
+                self.advertise_port,
                 self.roku_usn))
 
         if self.notify_task is not None \
@@ -285,20 +287,12 @@ class RokuCommandHandler:
         pass
 
 
-def make_roku_api(loop, handler,
-                  host_ip="0.0.0.0", listen_port=8060,
-                  advertise_ip=None, advertise_port=None,
-                  bind_multicast=True):
+async def make_roku_api(loop, handler,
+                        roku_usn, host_ip, listen_port,
+                        advertise_ip=None, advertise_port=None,
+                        bind_multicast=True):
     """Intialize the Roku API and discovery protocols."""
-    advertise_ip = advertise_ip or host_ip
-    advertise_port = advertise_port or listen_port
-
-    roku_uuid = str(uuid.uuid5(uuid.NAMESPACE_OID,
-                               "{}:{}".format(advertise_ip,
-                                              advertise_port)))
-
-    roku_usn = USN_GENERATOR.uuid(
-        name="{}{}".format(advertise_ip, advertise_port))
+    roku_uuid = str(uuid.uuid5(uuid.NAMESPACE_OID, roku_usn))
 
     roku_info = ROKU_INFO_TEMPLATE.format(uuid=roku_uuid,
                                           usn=roku_usn)
@@ -362,22 +356,6 @@ def make_roku_api(loop, handler,
         return web.Response(body=device_info,
                             headers={'Content-Type': 'text/xml'})
 
-    discovery_protocol = partial(RokuDiscoveryServerProtocol,
-                                 host_ip, listen_port, advertise_ip,
-                                 advertise_port, roku_usn)
-
-    # do not bind multicast group on windows even if requested
-    if bind_multicast and os.name != "nt":
-        multicast_ip = RokuDiscoveryServerProtocol.MULTICAST_GROUP
-    else:
-        multicast_ip = host_ip
-
-    discovery_endpoint = loop.create_datagram_endpoint(
-        discovery_protocol,
-        local_addr=(
-            multicast_ip, RokuDiscoveryServerProtocol.MULTICAST_PORT),
-        reuse_address=True)
-
     app = web.Application(loop=loop)
 
     app.router.add_route('GET', "/", roku_root_handler)
@@ -399,7 +377,46 @@ def make_roku_api(loop, handler,
     app.router.add_route('GET', "/query/device-info",
                          roku_info_handler)
 
-    api_endpoint = loop.create_server(app.make_handler(), host_ip,
-                                      listen_port)
+    api_endpoint = await loop.create_server(app.make_handler(),
+                                            host_ip, listen_port)
+    if not advertise_ip:
+        advertise_ip = host_ip
+
+    if not advertise_port:
+        advertise_port = listen_port
+
+    discovery_protocol = partial(RokuDiscoveryServerProtocol,
+                                 host_ip, roku_usn,
+                                 advertise_ip, advertise_port)
+
+    # do not bind multicast group on windows even if requested
+    if bind_multicast and os.name != "nt":
+        multicast_ip = RokuDiscoveryServerProtocol.MULTICAST_GROUP
+    else:
+        multicast_ip = host_ip
+
+    discovery_endpoint = await loop.create_datagram_endpoint(
+        discovery_protocol,
+        local_addr=(multicast_ip,
+                    RokuDiscoveryServerProtocol.MULTICAST_PORT),
+        reuse_address=True)
 
     return discovery_endpoint, api_endpoint
+
+
+def get_local_ip():
+    """Try to determine the local IP address of the machine."""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+        # Use Google Public DNS server to determine own IP
+        sock.connect(('8.8.8.8', 80))
+
+        return sock.getsockname()[0]
+    except socket.error:
+        try:
+            return socket.gethostbyname(socket.gethostname())
+        except socket.gaierror:
+            return '127.0.0.1'
+    finally:
+        sock.close()

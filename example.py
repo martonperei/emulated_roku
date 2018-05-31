@@ -11,17 +11,16 @@ if __name__ == "__main__":
 
     servers = []
 
+
     async def init(loop):
-        discovery_endpoint, roku_api_endpoint = emulated_roku.make_roku_api(
-            loop=loop,
-            handler=emulated_roku.RokuCommandHandler(),
-            host_ip='192.168.1.101')  # !Change Host IP!
+        discovery_server, roku_api = await emulated_roku.make_roku_api(
+            loop,
+            emulated_roku.RokuCommandHandler(),
+            "test_roku", emulated_roku.get_local_ip(), 8060)
 
-        discovery_transport, _ = await discovery_endpoint
-        api_server = await roku_api_endpoint
+        servers.append(discovery_server)
+        servers.append(roku_api)
 
-        servers.append(discovery_transport)
-        servers.append(api_server)
 
     loop.run_until_complete(init(loop))
 
