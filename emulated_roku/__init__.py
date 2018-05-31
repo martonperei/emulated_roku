@@ -8,11 +8,8 @@ import socket
 import uuid
 
 from aiohttp import web
-import shortuuid
 
 _LOGGER = logging.getLogger(__name__)
-
-USN_GENERATOR = shortuuid.ShortUUID()
 
 ROKU_INFO_TEMPLATE = """<?xml version="1.0" encoding="UTF-8" ?>
 <root xmlns="urn:schemas-upnp-org:device-1-0">

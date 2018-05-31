@@ -9,9 +9,9 @@ setup(name="emulated_roku",
       url="https://gitlab.com/mindig.marton/emulated_roku",
       download_url="https://gitlab.com"
                    "/mindig.marton/emulated_roku"
-                   "/repository/archive.zip?ref=0.1.3",
+                   "/repository/archive.zip?ref=0.1.4",
       author="mindigmarton",
       license="MIT",
       packages=["emulated_roku"],
-      install_requires=["aiohttp>2,<4", "shortuuid==0.5.0"],
+      install_requires=["aiohttp>2,<4"],
       zip_safe=True)
