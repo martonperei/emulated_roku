@@ -1,17 +1,17 @@
 """Emulated Roku library."""
 import asyncio
-from functools import partial
 import logging
 import os
 import random
 import socket
 import uuid
+from functools import partial
 
 from aiohttp import web
 
 _LOGGER = logging.getLogger(__name__)
 
-ROKU_INFO_TEMPLATE = """<?xml version="1.0" encoding="UTF-8" ?>
+INFO_TEMPLATE = """<?xml version="1.0" encoding="UTF-8" ?>
 <root xmlns="urn:schemas-upnp-org:device-1-0">
     <specVersion>
         <major>1</major>
@@ -40,7 +40,7 @@ ROKU_INFO_TEMPLATE = """<?xml version="1.0" encoding="UTF-8" ?>
     </device>
 </root>"""
 
-ROKU_DEVICE_INFO_TEMPLATE = """<device-info>
+DEVICE_INFO_TEMPLATE = """<device-info>
     <udn>{uuid}</udn>
     <serial-number>{usn}</serial-number>
     <device-id>{usn}</device-id>
@@ -122,8 +122,8 @@ class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
     roku_usn = None
     notify_task = None  # type: asyncio.Future
 
-    def __init__(self, host_ip, roku_usn,
-                 advertise_ip, advertise_port, loop=None):
+    def __init__(self, host_ip, roku_usn, advertise_ip, advertise_port,
+                 loop=None):
         """Initialize the protocol."""
         if loop:
             self.loop = loop
@@ -135,18 +135,14 @@ class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
         self.advertise_ip = advertise_ip
         self.advertise_port = advertise_port
         self.upnp_response = self.MULTICAST_RESPONSE.format(
-            advertise_ip=advertise_ip,
-            advertise_port=advertise_port,
-            usn=roku_usn,
-            ttl=self.MUTLICAST_TTL)
+            advertise_ip=advertise_ip, advertise_port=advertise_port,
+            usn=roku_usn, ttl=self.MUTLICAST_TTL)
 
         self.notify_broadcast = self.MULTICAST_NOTIFY.format(
-            advertise_ip=advertise_ip,
-            advertise_port=advertise_port,
+            advertise_ip=advertise_ip, advertise_port=advertise_port,
             multicast_ip=self.MULTICAST_GROUP,
             multicast_port=self.MULTICAST_PORT,
-            usn=roku_usn,
-            ttl=self.MUTLICAST_TTL)
+            usn=roku_usn, ttl=self.MUTLICAST_TTL)
 
     def connection_made(self, transport):
         """Set up the multicast socket
@@ -154,30 +150,27 @@ class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
         """
         self.transport = transport
 
-        sock = self.transport.get_extra_info(
-            'socket')  # type: socket.socket
+        sock = self.transport.get_extra_info('socket')  # type: socket.socket
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
                         socket.inet_aton(self.MULTICAST_GROUP) +
                         socket.inet_aton(self.host_ip))
 
-        _LOGGER.debug(
-            "multicast:started for {}/{}:{}/usn:{}".format(
-                self.MULTICAST_GROUP,
-                self.advertise_ip,
-                self.advertise_port,
-                self.roku_usn))
+        _LOGGER.debug("multicast:started for {}/{}:{}/usn:{}".format(
+            self.MULTICAST_GROUP,
+            self.advertise_ip,
+            self.advertise_port,
+            self.roku_usn))
 
         self.notify_task = self.loop.create_task(
             self.multicast_notify(self.MUTLICAST_TTL))
 
     def connection_lost(self, exc):
         """Clean up the protocol."""
-        _LOGGER.debug(
-            "multicast:closed for {}/{}:{}/usn:{}".format(
-                self.MULTICAST_GROUP,
-                self.advertise_ip,
-                self.advertise_port,
-                self.roku_usn))
+        _LOGGER.debug("multicast:closed for {}/{}:{}/usn:{}".format(
+            self.MULTICAST_GROUP,
+            self.advertise_ip,
+            self.advertise_port,
+            self.roku_usn))
 
         if self.notify_task is not None \
                 and not self.notify_task.done():
@@ -195,8 +188,7 @@ class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
                          RokuDiscoveryServerProtocol.MULTICAST_PORT)
 
         _LOGGER.debug("multicast:broadcast %s", self.notify_broadcast)
-        self.transport.sendto(self.notify_broadcast.encode(),
-                              notify_target)
+        self.transport.sendto(self.notify_broadcast.encode(), notify_target)
 
         self.notify_task = self.loop.create_task(
             self.multicast_notify(self.MUTLICAST_TTL))
@@ -209,8 +201,7 @@ class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
             return
 
         _LOGGER.debug("multicast:reply %s", self.upnp_response)
-        self.transport.sendto(self.upnp_response.encode('utf-8'),
-                              addr)
+        self.transport.sendto(self.upnp_response.encode('utf-8'), addr)
 
     def datagram_received(self, data, addr):
         """Parse the received datagram and send a reply if needed."""
@@ -291,10 +282,9 @@ async def make_roku_api(loop, handler,
     """Intialize the Roku API and discovery protocols."""
     roku_uuid = str(uuid.uuid5(uuid.NAMESPACE_OID, roku_usn))
 
-    roku_info = ROKU_INFO_TEMPLATE.format(uuid=roku_uuid,
-                                          usn=roku_usn)
-    device_info = ROKU_DEVICE_INFO_TEMPLATE.format(uuid=roku_uuid,
-                                                   usn=roku_usn)
+    roku_info = INFO_TEMPLATE.format(uuid=roku_uuid, usn=roku_usn)
+    device_info = DEVICE_INFO_TEMPLATE.format(uuid=roku_uuid,
+                                              usn=roku_usn)
 
     @asyncio.coroutine
     def roku_root_handler(request):
@@ -357,22 +347,17 @@ async def make_roku_api(loop, handler,
 
     app.router.add_route('GET', "/", roku_root_handler)
 
-    app.router.add_route('POST', "/keydown/{key}",
-                         roku_keydown_handler)
+    app.router.add_route('POST', "/keydown/{key}", roku_keydown_handler)
     app.router.add_route('POST', "/keyup/{key}", roku_keyup_handler)
-    app.router.add_route('POST', "/keypress/{key}",
-                         roku_keypress_handler)
+    app.router.add_route('POST', "/keypress/{key}", roku_keypress_handler)
     app.router.add_route('POST', "/launch/{id}", roku_launch_handler)
     app.router.add_route('POST', "/input", roku_input_handler)
     app.router.add_route('POST', "/search", roku_search_handler)
 
     app.router.add_route('GET', "/query/apps", roku_apps_handler)
-    app.router.add_route('GET', "/query/icon/{id}",
-                         roku_app_icon_handler)
-    app.router.add_route('GET', "/query/active-app",
-                         roku_active_app_handler)
-    app.router.add_route('GET', "/query/device-info",
-                         roku_info_handler)
+    app.router.add_route('GET', "/query/icon/{id}", roku_app_icon_handler)
+    app.router.add_route('GET', "/query/active-app", roku_active_app_handler)
+    app.router.add_route('GET', "/query/device-info", roku_info_handler)
 
     api_endpoint = await loop.create_server(app.make_handler(),
                                             host_ip, listen_port)
@@ -394,8 +379,7 @@ async def make_roku_api(loop, handler,
 
     discovery_endpoint = await loop.create_datagram_endpoint(
         discovery_protocol,
-        local_addr=(multicast_ip,
-                    RokuDiscoveryServerProtocol.MULTICAST_PORT),
+        local_addr=(multicast_ip, RokuDiscoveryServerProtocol.MULTICAST_PORT),
         reuse_address=True)
 
     return discovery_endpoint, api_endpoint

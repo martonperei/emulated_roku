@@ -14,9 +14,9 @@ if __name__ == "__main__":
 
     async def init(loop):
         discovery_server, roku_api = await emulated_roku.make_roku_api(
-            loop,
-            emulated_roku.RokuCommandHandler(),
-            "test_roku", emulated_roku.get_local_ip(), 8060)
+            loop, emulated_roku.RokuCommandHandler(),
+            "test_roku", emulated_roku.get_local_ip(), 8060
+        )
 
         servers.append(discovery_server)
         servers.append(roku_api)
