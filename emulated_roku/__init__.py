@@ -280,6 +280,15 @@ async def make_roku_api(loop, handler,
                         advertise_ip=None, advertise_port=None,
                         bind_multicast=True):
     """Intialize the Roku API and discovery protocols."""
+    if advertise_ip is None:
+        advertise_ip = host_ip
+
+    if advertise_port is None:
+        advertise_port = listen_port
+        
+    if bind_multicast is None:
+        bind_multicast = True
+
     roku_uuid = str(uuid.uuid5(uuid.NAMESPACE_OID, roku_usn))
 
     roku_info = INFO_TEMPLATE.format(uuid=roku_uuid, usn=roku_usn)
@@ -361,11 +370,6 @@ async def make_roku_api(loop, handler,
 
     api_endpoint = await loop.create_server(app.make_handler(),
                                             host_ip, listen_port)
-    if not advertise_ip:
-        advertise_ip = host_ip
-
-    if not advertise_port:
-        advertise_port = listen_port
 
     discovery_protocol = partial(RokuDiscoveryServerProtocol,
                                  host_ip, roku_usn,
