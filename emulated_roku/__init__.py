@@ -5,7 +5,7 @@ import os
 import random
 import socket
 import uuid
-from functools import partial
+from typing import List
 
 from aiohttp import web
 
@@ -19,40 +19,32 @@ INFO_TEMPLATE = """<?xml version="1.0" encoding="UTF-8" ?>
     </specVersion>
     <device>
     <deviceType>urn:roku-com:device:player:1-0</deviceType>
-    <friendlyName>Emulated Roku {usn}</friendlyName>
-    <manufacturer>Emulated Roku</manufacturer>
+    <friendlyName>{usn}</friendlyName>
+    <manufacturer>Roku</manufacturer>
     <manufacturerURL>http://www.roku.com/</manufacturerURL>
     <modelDescription>Emulated Roku</modelDescription>
-    <modelName>Emulated Roku 4</modelName>
+    <modelName>Roku 4</modelName>
     <modelNumber>4400x</modelNumber>
     <modelURL>http://www.roku.com/</modelURL>
     <serialNumber>{usn}</serialNumber>
     <UDN>uuid:{uuid}</UDN>
-    <serviceList>
-        <service>
-            <serviceType>urn:roku-com:service:ecp:1</serviceType>
-            <serviceId>urn:roku-com:serviceId:ecp1-0</serviceId>
-            <controlURL/>
-            <eventSubURL/>
-            <SCPDURL>ecp_SCPD.xml</SCPDURL>
-        </service>
-    </serviceList>
     </device>
-</root>"""
+</root>
+"""
 
 DEVICE_INFO_TEMPLATE = """<device-info>
     <udn>{uuid}</udn>
     <serial-number>{usn}</serial-number>
     <device-id>{usn}</device-id>
-    <vendor-name>Emulated Roku</vendor-name>
+    <vendor-name>Roku</vendor-name>
     <model-number>4400X</model-number>
-    <model-name>Emulated Roku 4</model-name>
+    <model-name>Roku 4</model-name>
     <model-region>US</model-region>
     <supports-ethernet>true</supports-ethernet>
-    <wifi-mac>b0:a7:37:96:4d:fb</wifi-mac>
-    <ethernet-mac>b0:a7:37:96:4d:fa</ethernet-mac>
+    <wifi-mac>00:00:00:00:00:00</wifi-mac>
+    <ethernet-mac>00:00:00:00:00:00</ethernet-mac>
     <network-type>ethernet</network-type>
-    <user-device-name>Emulated Roku {usn}</user-device-name>
+    <user-device-name>{usn}</user-device-name>
     <software-version>7.5.0</software-version>
     <software-build>09021</software-build>
     <secure-device>true</secure-device>
@@ -65,15 +57,16 @@ DEVICE_INFO_TEMPLATE = """<device-info>
     <supports-suspend>false</supports-suspend>
     <supports-find-remote>false</supports-find-remote>
     <supports-audio-guide>false</supports-audio-guide>
-    <developer-enabled>true</developer-enabled>
-    <keyed-developer-id>70f6ed9c90cf60718a26f3a7c3e5af1c3ec29558</keyed-developer-id>
-    <search-enabled>true</search-enabled>
-    <voice-search-enabled>true</voice-search-enabled>
-    <notifications-enabled>true</notifications-enabled>
+    <developer-enabled>false</developer-enabled>
+    <keyed-developer-id>0000000000000000000000000000000000000000</keyed-developer-id>
+    <search-enabled>false</search-enabled>
+    <voice-search-enabled>false</voice-search-enabled>
+    <notifications-enabled>false</notifications-enabled>
     <notifications-first-use>false</notifications-first-use>
     <supports-private-listening>false</supports-private-listening>
     <headphones-connected>false</headphones-connected>
-</device-info>"""
+</device-info>
+"""
 
 APPS_TEMPLATE = """<apps>
     <app id="1" version="1.0.0">Emulated App 1</app>
@@ -86,147 +79,140 @@ APPS_TEMPLATE = """<apps>
     <app id="8" version="1.0.0">Emulated App 8</app>
     <app id="9" version="1.0.0">Emulated App 9</app>
     <app id="10" version="1.0.0">Emulated App 10</app>
-</apps>"""
+</apps>
+"""
 
 ACTIVE_APP_TEMPLATE = """<active-app>
     <app>Roku</app>
-</active-app>"""
+</active-app>
+"""
+
+MUTLICAST_TTL = 300
+MULTICAST_MAX_DELAY = 5
+MULTICAST_GROUP = "239.255.255.250"
+MULTICAST_PORT = 1900
+
+MULTICAST_RESPONSE = "HTTP/1.1 200 OK\r\n" \
+                     "Cache-Control: max-age = {ttl}\r\n" \
+                     "ST: roku:ecp\r\n" \
+                     "Location: http://{advertise_ip}:{advertise_port}/\r\n" \
+                     "USN: uuid:roku:ecp:{usn}\r\n" \
+                     "\r\n"
+
+MULTICAST_NOTIFY = "NOTIFY * HTTP/1.1\r\n" \
+                   "HOST: {multicast_ip}:{multicast_port}\r\n" \
+                   "Cache-Control: max-age = {ttl}\r\n" \
+                   "NT: upnp:rootdevice\r\n" \
+                   "NTS: ssdp:alive\r\n" \
+                   "Location: http://{advertise_ip}:{advertise_port}/\r\n" \
+                   "USN: uuid:roku:ecp:{usn}\r\n" \
+                   "\r\n"
 
 
-class RokuDiscoveryServerProtocol(asyncio.DatagramProtocol):
-    """Roku UPNP Discovery protocol."""
+class EmulatedRokuDiscoveryProtocol(asyncio.DatagramProtocol):
+    """Roku SSDP Discovery protocol."""
 
-    MUTLICAST_TTL = 300
-    SSDP_MAX_DELAY = 5
-    MULTICAST_GROUP = "239.255.255.250"
-    MULTICAST_PORT = 1900
-    MULTICAST_SEARCH_MSG = "M-SEARCH * HTTP/1.1"
-
-    MULTICAST_RESPONSE = "HTTP/1.1 200 OK\n" \
-                         "Cache-Control: max-age = {ttl}\n" \
-                         "ST: roku:ecp\n" \
-                         "Location: http://{advertise_ip}:{advertise_port}/\n" \
-                         "USN: uuid:roku:ecp:{usn}\n"
-
-    MULTICAST_NOTIFY = "NOTIFY * HTTP/1.1\n" \
-                       "HOST: {multicast_ip}:{multicast_port}\n" \
-                       "Cache-Control: max-age = {ttl}\n" \
-                       "NT: upnp:rootdevice\n" \
-                       "NTS: ssdp:alive\n" \
-                       "Location: http://{advertise_ip}:{advertise_port}/\n" \
-                       "USN: uuid:roku:ecp:{usn}\n"
-
-    transport = None  # type: asyncio.DatagramTransport
-    advertise_ip = None
-    advertise_port = None
-    roku_usn = None
-    notify_task = None  # type: asyncio.Future
-
-    def __init__(self, host_ip, roku_usn, advertise_ip, advertise_port,
-                 loop=None):
+    def __init__(self, loop: asyncio.AbstractEventLoop,
+                 host_ip: str, roku_usn: str,
+                 advertise_ip: str, advertise_port: int):
         """Initialize the protocol."""
-        if loop:
-            self.loop = loop
-        else:
-            self.loop = asyncio.get_event_loop()
-
+        self.loop = loop
         self.host_ip = host_ip
         self.roku_usn = roku_usn
         self.advertise_ip = advertise_ip
         self.advertise_port = advertise_port
-        self.upnp_response = self.MULTICAST_RESPONSE.format(
+        self.ssdp_response = MULTICAST_RESPONSE.format(
             advertise_ip=advertise_ip, advertise_port=advertise_port,
-            usn=roku_usn, ttl=self.MUTLICAST_TTL)
+            usn=roku_usn, ttl=MUTLICAST_TTL)
 
-        self.notify_broadcast = self.MULTICAST_NOTIFY.format(
+        self.notify_broadcast = MULTICAST_NOTIFY.format(
             advertise_ip=advertise_ip, advertise_port=advertise_port,
-            multicast_ip=self.MULTICAST_GROUP,
-            multicast_port=self.MULTICAST_PORT,
-            usn=roku_usn, ttl=self.MUTLICAST_TTL)
+            multicast_ip=MULTICAST_GROUP, multicast_port=MULTICAST_PORT,
+            usn=roku_usn, ttl=MUTLICAST_TTL)
+
+        self.notify_task: asyncio.Task = None
+        self.reply_timers: List[asyncio.TimerHandle] = []
+        self.transport: asyncio.DatagramTransport = None
 
     def connection_made(self, transport):
-        """Set up the multicast socket
-        and schedule the NOTIFY message.
-        """
+        """Set up the multicast socket and schedule the NOTIFY message."""
         self.transport = transport
 
-        sock = self.transport.get_extra_info('socket')  # type: socket.socket
+        sock: socket.socket = self.transport.get_extra_info('socket')
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
-                        socket.inet_aton(self.MULTICAST_GROUP) +
+                        socket.inet_aton(MULTICAST_GROUP) +
                         socket.inet_aton(self.host_ip))
 
-        _LOGGER.debug("multicast:started for {}/{}:{}/usn:{}".format(
-            self.MULTICAST_GROUP,
-            self.advertise_ip,
-            self.advertise_port,
-            self.roku_usn))
+        _LOGGER.debug("multicast:started for %s/%s:%s/usn:%s",
+                      MULTICAST_GROUP,
+                      self.advertise_ip, self.advertise_port, self.roku_usn)
 
-        self.notify_task = self.loop.create_task(
-            self.multicast_notify(self.MUTLICAST_TTL))
+        self.notify_task = self.loop.create_task(self._multicast_notify())
 
     def connection_lost(self, exc):
         """Clean up the protocol."""
-        _LOGGER.debug("multicast:closed for {}/{}:{}/usn:{}".format(
-            self.MULTICAST_GROUP,
-            self.advertise_ip,
-            self.advertise_port,
-            self.roku_usn))
+        _LOGGER.debug("multicast:connection_lost for %s/%s:%s/usn:%s",
+                      MULTICAST_GROUP,
+                      self.advertise_ip, self.advertise_port, self.roku_usn)
 
-        if self.notify_task is not None \
-                and not self.notify_task.done():
-            self.notify_task.cancel()
+        self.close()
 
-    @asyncio.coroutine
-    async def multicast_notify(self, delay):
+    async def _multicast_notify(self) -> None:
         """Broadcast a NOTIFY multicast message."""
-        await asyncio.sleep(delay)
+        while self.transport and not self.transport.is_closing():
+            _LOGGER.debug("multicast:broadcast\n%s", self.notify_broadcast)
 
-        if self.transport is None or self.transport.is_closing():
-            return
+            self.transport.sendto(self.notify_broadcast.encode(),
+                                  (MULTICAST_GROUP, MULTICAST_PORT))
 
-        notify_target = (RokuDiscoveryServerProtocol.MULTICAST_GROUP,
-                         RokuDiscoveryServerProtocol.MULTICAST_PORT)
+            await asyncio.sleep(MUTLICAST_TTL)
 
-        _LOGGER.debug("multicast:broadcast %s", self.notify_broadcast)
-        self.transport.sendto(self.notify_broadcast.encode(), notify_target)
-
-        self.notify_task = self.loop.create_task(
-            self.multicast_notify(self.MUTLICAST_TTL))
-
-    async def multicast_reply(self, delay, data, addr):
+    def _multicast_reply(self, data: str, addr: tuple) -> None:
         """Reply to a discovery message."""
-        await asyncio.sleep(delay)
-
         if self.transport is None or self.transport.is_closing():
             return
 
-        _LOGGER.debug("multicast:reply %s", self.upnp_response)
-        self.transport.sendto(self.upnp_response.encode('utf-8'), addr)
+        _LOGGER.debug("multicast:reply %s\n%s", addr, self.ssdp_response)
+        self.transport.sendto(self.ssdp_response.encode('utf-8'), addr)
 
     def datagram_received(self, data, addr):
         """Parse the received datagram and send a reply if needed."""
         data = data.decode('utf-8')
 
-        if data.startswith(self.MULTICAST_SEARCH_MSG) and \
+        if data.startswith("M-SEARCH * HTTP/1.1") and \
                 ("ST: ssdp:all" in data or "ST: roku:ecp" in data):
-            _LOGGER.debug("multicast:request %s", data)
+            _LOGGER.debug("multicast:request %s\n%s", addr, data)
 
             mx_value = data.find("MX:")
 
             if mx_value != -1:
-                mx_delay = int(data[mx_value + 4]) % (
-                        self.SSDP_MAX_DELAY + 1)
+                mx_delay = int(data[mx_value + 4]) % (MULTICAST_MAX_DELAY + 1)
 
                 delay = random.randrange(0, mx_delay + 1, 1)
             else:
-                delay = random.randrange(0, self.SSDP_MAX_DELAY + 1,
-                                         1)
+                delay = random.randrange(0, MULTICAST_MAX_DELAY + 1, 1)
 
-            self.loop.create_task(
-                self.multicast_reply(delay, data, addr))
+            self.reply_timers.append(self.loop.call_later(
+                delay,
+                self._multicast_reply, data, addr))
+
+    def close(self) -> None:
+        """Close the discovery transport."""
+        if self.notify_task:
+            self.notify_task.cancel()
+            self.notify_task = None
+
+        if self.reply_timers:
+            for timer in self.reply_timers:
+                timer.cancel()
+            self.reply_timers.clear()
+
+        if self.transport:
+            self.transport.close()
+            self.transport = None
 
 
-class RokuCommandHandler:
+class EmulatedRokuCommandHandler:
     """Base handler class for Roku commands."""
 
     KEY_HOME = 'Home'
@@ -258,138 +244,179 @@ class RokuCommandHandler:
     KEY_INPUTHDMI4 = 'InputHDMI4'
     KEY_INPUTAV1 = 'InputAV1'
 
-    def on_keydown(self, roku_usn, key):
+    def on_keydown(self, roku_usn: str, key: str) -> None:
         """Handle key down command."""
         pass
 
-    def on_keyup(self, roku_usn, key):
+    def on_keyup(self, roku_usn: str, key: str) -> None:
         """Handle key up command."""
         pass
 
-    def on_keypress(self, roku_usn, key):
+    def on_keypress(self, roku_usn: str, key: str) -> None:
         """Handle key press command."""
         pass
 
-    def launch(self, roku_usn, app_id):
+    def launch(self, roku_usn: str, app_id: str) -> None:
         """Handle launch command."""
         pass
 
 
-async def make_roku_api(loop, handler,
-                        roku_usn, host_ip, listen_port,
-                        advertise_ip=None, advertise_port=None,
-                        bind_multicast=True):
-    """Intialize the Roku API and discovery protocols."""
-    if advertise_ip is None:
-        advertise_ip = host_ip
+class EmulatedRokuServer:
+    """Emulated Roku server.
 
-    if advertise_port is None:
-        advertise_port = listen_port
-        
-    if bind_multicast is None:
-        bind_multicast = True
+    Handles the API HTTP server and UPNP discovery.
+    """
 
-    roku_uuid = str(uuid.uuid5(uuid.NAMESPACE_OID, roku_usn))
+    def __init__(self, loop: asyncio.AbstractEventLoop,
+                 handler: EmulatedRokuCommandHandler,
+                 roku_usn: str, host_ip: str, listen_port: int,
+                 advertise_ip: str = None, advertise_port: int = None,
+                 bind_multicast: bool = None):
+        """Initialize the Roku API server."""
+        self.loop = loop
+        self.handler = handler
+        self.roku_usn = roku_usn
+        self.host_ip = host_ip
+        self.listen_port = listen_port
 
-    roku_info = INFO_TEMPLATE.format(uuid=roku_uuid, usn=roku_usn)
-    device_info = DEVICE_INFO_TEMPLATE.format(uuid=roku_uuid,
+        self.advertise_ip = advertise_ip or host_ip
+        self.advertise_port = advertise_port or listen_port
+
+        if bind_multicast is None:
+            # do not bind multicast group on windows by default
+            self.bind_multicast = os.name != "nt"
+        else:
+            self.bind_multicast = bind_multicast
+
+        self.roku_uuid = str(uuid.uuid5(uuid.NAMESPACE_OID, roku_usn))
+
+        self.roku_info = INFO_TEMPLATE.format(uuid=self.roku_uuid,
                                               usn=roku_usn)
+        self.device_info = DEVICE_INFO_TEMPLATE.format(uuid=self.roku_uuid,
+                                                       usn=self.roku_usn)
 
-    @asyncio.coroutine
-    def roku_root_handler(request):
-        return web.Response(body=roku_info,
+        self.discovery_proto: EmulatedRokuDiscoveryProtocol = None
+        self.api_runner: web.AppRunner = None
+
+    async def _roku_root_handler(self, request):
+        return web.Response(body=self.roku_info,
                             headers={'Content-Type': 'text/xml'})
 
-    @asyncio.coroutine
-    def roku_input_handler(request):
+    async def _roku_input_handler(self, request):
         return web.Response()
 
-    @asyncio.coroutine
-    def roku_keydown_handler(request):
+    async def _roku_keydown_handler(self, request):
         key = request.match_info['key']
-        handler.on_keydown(roku_usn, key)
+        self.handler.on_keydown(self.roku_usn, key)
         return web.Response()
 
-    @asyncio.coroutine
-    def roku_keyup_handler(request):
+    async def _roku_keyup_handler(self, request):
         key = request.match_info['key']
-        handler.on_keyup(roku_usn, key)
+        self.handler.on_keyup(self.roku_usn, key)
         return web.Response()
 
-    @asyncio.coroutine
-    def roku_keypress_handler(request):
+    async def _roku_keypress_handler(self, request):
         key = request.match_info['key']
-        handler.on_keypress(roku_usn, key)
+        self.handler.on_keypress(self.roku_usn, key)
         return web.Response()
 
-    @asyncio.coroutine
-    def roku_launch_handler(request):
+    async def _roku_launch_handler(self, request):
         app_id = request.match_info['id']
-        handler.launch(roku_usn, app_id)
+        self.handler.launch(self.roku_usn, app_id)
         return web.Response()
 
-    @asyncio.coroutine
-    def roku_apps_handler(request):
+    async def _roku_apps_handler(self, request):
         return web.Response(body=APPS_TEMPLATE,
                             headers={'Content-Type': 'text/xml'})
 
-    @asyncio.coroutine
-    def roku_active_app_handler(request):
+    async def _roku_active_app_handler(self, request):
         return web.Response(body=ACTIVE_APP_TEMPLATE,
                             headers={'Content-Type': 'text/xml'})
 
-    @asyncio.coroutine
-    def roku_app_icon_handler(request):
+    async def _roku_app_icon_handler(self, request):
         return web.Response(body='',
                             headers={'Content-Type': 'image/png'})
 
-    @asyncio.coroutine
-    def roku_search_handler(request):
+    async def _roku_search_handler(self, request):
         return web.Response()
 
-    @asyncio.coroutine
-    def roku_info_handler(request):
-        return web.Response(body=device_info,
+    async def _roku_info_handler(self, request):
+        return web.Response(body=self.device_info,
                             headers={'Content-Type': 'text/xml'})
 
-    app = web.Application(loop=loop)
+    async def _setup_app(self) -> web.AppRunner:
+        app = web.Application(loop=self.loop)
 
-    app.router.add_route('GET', "/", roku_root_handler)
+        app.router.add_route('GET', "/", self._roku_root_handler)
 
-    app.router.add_route('POST', "/keydown/{key}", roku_keydown_handler)
-    app.router.add_route('POST', "/keyup/{key}", roku_keyup_handler)
-    app.router.add_route('POST', "/keypress/{key}", roku_keypress_handler)
-    app.router.add_route('POST', "/launch/{id}", roku_launch_handler)
-    app.router.add_route('POST', "/input", roku_input_handler)
-    app.router.add_route('POST', "/search", roku_search_handler)
+        app.router.add_route('POST', "/keydown/{key}",
+                             self._roku_keydown_handler)
+        app.router.add_route('POST', "/keyup/{key}",
+                             self._roku_keyup_handler)
+        app.router.add_route('POST', "/keypress/{key}",
+                             self._roku_keypress_handler)
+        app.router.add_route('POST', "/launch/{id}",
+                             self._roku_launch_handler)
+        app.router.add_route('POST', "/input",
+                             self._roku_input_handler)
+        app.router.add_route('POST', "/search",
+                             self._roku_search_handler)
 
-    app.router.add_route('GET', "/query/apps", roku_apps_handler)
-    app.router.add_route('GET', "/query/icon/{id}", roku_app_icon_handler)
-    app.router.add_route('GET', "/query/active-app", roku_active_app_handler)
-    app.router.add_route('GET', "/query/device-info", roku_info_handler)
+        app.router.add_route('GET', "/query/apps",
+                             self._roku_apps_handler)
+        app.router.add_route('GET', "/query/icon/{id}",
+                             self._roku_app_icon_handler)
+        app.router.add_route('GET', "/query/active-app",
+                             self._roku_active_app_handler)
+        app.router.add_route('GET', "/query/device-info",
+                             self._roku_info_handler)
 
-    api_endpoint = await loop.create_server(app.make_handler(),
-                                            host_ip, listen_port)
+        api_runner = web.AppRunner(app)
 
-    discovery_protocol = partial(RokuDiscoveryServerProtocol,
-                                 host_ip, roku_usn,
-                                 advertise_ip, advertise_port)
+        await api_runner.setup()
 
-    # do not bind multicast group on windows even if requested
-    if bind_multicast and os.name != "nt":
-        multicast_ip = RokuDiscoveryServerProtocol.MULTICAST_GROUP
-    else:
-        multicast_ip = host_ip
+        return api_runner
 
-    discovery_endpoint = await loop.create_datagram_endpoint(
-        discovery_protocol,
-        local_addr=(multicast_ip, RokuDiscoveryServerProtocol.MULTICAST_PORT),
-        reuse_address=True)
+    async def start(self) -> None:
+        """Start the Roku API server and discovery endpoint."""
+        _LOGGER.debug("roku_api:starting server %s:%s",
+                      self.host_ip, self.listen_port)
 
-    return discovery_endpoint, api_endpoint
+        # set up the HTTP server
+        self.api_runner = await self._setup_app()
+
+        api_endpoint = web.TCPSite(self.api_runner,
+                                   self.host_ip, self.listen_port)
+
+        await api_endpoint.start()
+
+        # set up the SSDP discovery server
+        _, self.discovery_proto = await self.loop.create_datagram_endpoint(
+            lambda: EmulatedRokuDiscoveryProtocol(self.loop,
+                                                  self.host_ip, self.roku_usn,
+                                                  self.advertise_ip,
+                                                  self.advertise_port),
+            local_addr=(
+                MULTICAST_GROUP if self.bind_multicast else self.host_ip,
+                MULTICAST_PORT),
+            reuse_address=True)
+
+    async def close(self) -> None:
+        """Close the Roku API server and discovery endpoint."""
+        _LOGGER.debug("roku_api:closing server %s:%s",
+                      self.host_ip, self.listen_port)
+
+        if self.discovery_proto:
+            self.discovery_proto.close()
+            self.discovery_proto = None
+
+        if self.api_runner:
+            await self.api_runner.cleanup()
+            self.api_runner = None
 
 
-def get_local_ip():
+# Taken from: http://stackoverflow.com/a/11735897
+def get_local_ip() -> str:
     """Try to determine the local IP address of the machine."""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -397,7 +424,7 @@ def get_local_ip():
         # Use Google Public DNS server to determine own IP
         sock.connect(('8.8.8.8', 80))
 
-        return sock.getsockname()[0]
+        return sock.getsockname()[0]  # type: ignore
     except socket.error:
         try:
             return socket.gethostbyname(socket.gethostname())
