@@ -131,7 +131,6 @@ class EmulatedRokuDiscoveryProtocol(asyncio.DatagramProtocol):
             usn=roku_usn, ttl=MUTLICAST_TTL)
 
         self.notify_task: asyncio.Task = None
-        self.reply_timers: List[asyncio.TimerHandle] = []
         self.transport: asyncio.DatagramTransport = None
 
     def connection_made(self, transport):
@@ -192,20 +191,13 @@ class EmulatedRokuDiscoveryProtocol(asyncio.DatagramProtocol):
             else:
                 delay = random.randrange(0, MULTICAST_MAX_DELAY + 1, 1)
 
-            self.reply_timers.append(self.loop.call_later(
-                delay,
-                self._multicast_reply, data, addr))
+            self.loop.call_later(delay, self._multicast_reply, data, addr)
 
     def close(self) -> None:
         """Close the discovery transport."""
         if self.notify_task:
             self.notify_task.cancel()
             self.notify_task = None
-
-        if self.reply_timers:
-            for timer in self.reply_timers:
-                timer.cancel()
-            self.reply_timers.clear()
 
         if self.transport:
             self.transport.close()
