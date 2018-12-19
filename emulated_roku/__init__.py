@@ -5,7 +5,7 @@ import os
 import random
 import socket
 import uuid
-from typing import List
+from ipaddress import ip_address
 
 from aiohttp import web
 
@@ -274,6 +274,9 @@ class EmulatedRokuServer:
         self.advertise_ip = advertise_ip or host_ip
         self.advertise_port = advertise_port or listen_port
 
+        self.advertised_location = "{}:{}".format(self.advertise_ip,
+                                                  self.advertise_port)
+
         if bind_multicast is None:
             # do not bind multicast group on windows by default
             self.bind_multicast = os.name != "nt"
@@ -336,8 +339,25 @@ class EmulatedRokuServer:
         return web.Response(body=self.device_info,
                             headers={'Content-Type': 'text/xml'})
 
+    @web.middleware
+    async def _check_remote_and_host_ip(self, request, handler):
+        # only allow access by advertised ip (prevents dns rebinding)
+        if request.host not in (self.advertised_location, self.advertise_ip):
+            _LOGGER.warning("Rejected non-advertised access by host %s",
+                            request.host)
+            raise web.HTTPForbidden
+
+        # only allow local network access
+        if not ip_address(request.remote).is_private:
+            _LOGGER.warning("Rejected non-local access from remote %s",
+                            request.remote)
+            raise web.HTTPForbidden
+
+        return await handler(request)
+
     async def _setup_app(self) -> web.AppRunner:
-        app = web.Application(loop=self.loop)
+        app = web.Application(loop=self.loop,
+                              middlewares=[self._check_remote_and_host_ip])
 
         app.router.add_route('GET', "/", self._roku_root_handler)
 
