@@ -1,15 +1,21 @@
 """Emulated Roku library."""
-import asyncio
-import logging
-import os
-import random
-import socket
-import uuid
+from asyncio import (
+    AbstractEventLoop, DatagramProtocol, DatagramTransport, Task, sleep)
+from base64 import b64decode
 from ipaddress import ip_address
+from logging import getLogger
+from os import name as osname
+from random import randrange
+import socket
+from uuid import NAMESPACE_OID, uuid5
 
 from aiohttp import web
 
-_LOGGER = logging.getLogger(__name__)
+_LOGGER = getLogger(__name__)
+
+APP_PLACEHOLDER_ICON = b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8Xw8AAoMBgDTD2"
+    "qgAAAAASUVORK5CYII=")
 
 INFO_TEMPLATE = """<?xml version="1.0" encoding="UTF-8" ?>
 <root xmlns="urn:schemas-upnp-org:device-1-0">
@@ -109,10 +115,10 @@ MULTICAST_NOTIFY = "NOTIFY * HTTP/1.1\r\n" \
                    "\r\n"
 
 
-class EmulatedRokuDiscoveryProtocol(asyncio.DatagramProtocol):
+class EmulatedRokuDiscoveryProtocol(DatagramProtocol):
     """Roku SSDP Discovery protocol."""
 
-    def __init__(self, loop: asyncio.AbstractEventLoop,
+    def __init__(self, loop: AbstractEventLoop,
                  host_ip: str, roku_usn: str,
                  advertise_ip: str, advertise_port: int):
         """Initialize the protocol."""
@@ -130,14 +136,14 @@ class EmulatedRokuDiscoveryProtocol(asyncio.DatagramProtocol):
             multicast_ip=MULTICAST_GROUP, multicast_port=MULTICAST_PORT,
             usn=roku_usn, ttl=MUTLICAST_TTL)
 
-        self.notify_task: asyncio.Task = None
-        self.transport: asyncio.DatagramTransport = None
+        self.notify_task: Task = None
+        self.transport: DatagramTransport = None
 
     def connection_made(self, transport):
         """Set up the multicast socket and schedule the NOTIFY message."""
         self.transport = transport
 
-        sock: socket.socket = self.transport.get_extra_info('socket')
+        sock: socket = self.transport.get_extra_info('socket')
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
                         socket.inet_aton(MULTICAST_GROUP) +
                         socket.inet_aton(self.host_ip))
@@ -164,7 +170,7 @@ class EmulatedRokuDiscoveryProtocol(asyncio.DatagramProtocol):
             self.transport.sendto(self.notify_broadcast.encode(),
                                   (MULTICAST_GROUP, MULTICAST_PORT))
 
-            await asyncio.sleep(MUTLICAST_TTL)
+            await sleep(MUTLICAST_TTL)
 
     def _multicast_reply(self, data: str, addr: tuple) -> None:
         """Reply to a discovery message."""
@@ -187,9 +193,9 @@ class EmulatedRokuDiscoveryProtocol(asyncio.DatagramProtocol):
             if mx_value != -1:
                 mx_delay = int(data[mx_value + 4]) % (MULTICAST_MAX_DELAY + 1)
 
-                delay = random.randrange(0, mx_delay + 1, 1)
+                delay = randrange(0, mx_delay + 1, 1)
             else:
-                delay = random.randrange(0, MULTICAST_MAX_DELAY + 1, 1)
+                delay = randrange(0, MULTICAST_MAX_DELAY + 1, 1)
 
             self.loop.call_later(delay, self._multicast_reply, data, addr)
 
@@ -259,7 +265,7 @@ class EmulatedRokuServer:
     Handles the API HTTP server and UPNP discovery.
     """
 
-    def __init__(self, loop: asyncio.AbstractEventLoop,
+    def __init__(self, loop: AbstractEventLoop,
                  handler: EmulatedRokuCommandHandler,
                  roku_usn: str, host_ip: str, listen_port: int,
                  advertise_ip: str = None, advertise_port: int = None,
@@ -279,11 +285,11 @@ class EmulatedRokuServer:
 
         if bind_multicast is None:
             # do not bind multicast group on windows by default
-            self.bind_multicast = os.name != "nt"
+            self.bind_multicast = osname != "nt"
         else:
             self.bind_multicast = bind_multicast
 
-        self.roku_uuid = str(uuid.uuid5(uuid.NAMESPACE_OID, roku_usn))
+        self.roku_uuid = str(uuid5(NAMESPACE_OID, roku_usn))
 
         self.roku_info = INFO_TEMPLATE.format(uuid=self.roku_uuid,
                                               usn=roku_usn)
@@ -329,7 +335,7 @@ class EmulatedRokuServer:
                             headers={'Content-Type': 'text/xml'})
 
     async def _roku_app_icon_handler(self, request):
-        return web.Response(body='',
+        return web.Response(body=APP_PLACEHOLDER_ICON,
                             headers={'Content-Type': 'image/png'})
 
     async def _roku_search_handler(self, request):
