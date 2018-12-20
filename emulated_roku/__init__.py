@@ -136,14 +136,14 @@ class EmulatedRokuDiscoveryProtocol(DatagramProtocol):
             multicast_ip=MULTICAST_GROUP, multicast_port=MULTICAST_PORT,
             usn=roku_usn, ttl=MUTLICAST_TTL)
 
-        self.notify_task: Task = None
-        self.transport: DatagramTransport = None
+        self.notify_task = None  # type: Task
+        self.transport = None  # type: DatagramTransport
 
     def connection_made(self, transport):
         """Set up the multicast socket and schedule the NOTIFY message."""
         self.transport = transport
 
-        sock: socket = self.transport.get_extra_info('socket')
+        sock = self.transport.get_extra_info('socket')  # type: socket
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
                         socket.inet_aton(MULTICAST_GROUP) +
                         socket.inet_aton(self.host_ip))
@@ -296,8 +296,8 @@ class EmulatedRokuServer:
         self.device_info = DEVICE_INFO_TEMPLATE.format(uuid=self.roku_uuid,
                                                        usn=self.roku_usn)
 
-        self.discovery_proto: EmulatedRokuDiscoveryProtocol = None
-        self.api_runner: web.AppRunner = None
+        self.discovery_proto = None  # type: EmulatedRokuDiscoveryProtocol
+        self.api_runner = None  # type: web.AppRunner
 
     async def _roku_root_handler(self, request):
         return web.Response(body=self.roku_info,
