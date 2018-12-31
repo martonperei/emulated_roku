@@ -280,8 +280,11 @@ class EmulatedRokuServer:
         self.advertise_ip = advertise_ip or host_ip
         self.advertise_port = advertise_port or listen_port
 
-        self.advertised_location = "{}:{}".format(self.advertise_ip,
-                                                  self.advertise_port)
+        self.allowed_hosts = (
+            self.host_ip,
+            "{}:{}".format(self.host_ip, self.listen_port),
+            self.advertise_ip,
+            "{}:{}".format(self.advertise_ip, self.advertise_port))
 
         if bind_multicast is None:
             # do not bind multicast group on windows by default
@@ -347,8 +350,9 @@ class EmulatedRokuServer:
 
     @web.middleware
     async def _check_remote_and_host_ip(self, request, handler):
-        # only allow access by advertised ip (prevents dns rebinding)
-        if request.host not in (self.advertised_location, self.advertise_ip):
+        # only allow access by advertised address or bound ip:[port]
+        # (prevents dns rebinding)
+        if request.host not in self.allowed_hosts:
             _LOGGER.warning("Rejected non-advertised access by host %s",
                             request.host)
             raise web.HTTPForbidden
