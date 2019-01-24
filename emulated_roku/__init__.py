@@ -182,7 +182,7 @@ class EmulatedRokuDiscoveryProtocol(DatagramProtocol):
 
     def datagram_received(self, data, addr):
         """Parse the received datagram and send a reply if needed."""
-        data = data.decode('utf-8')
+        data = data.decode('utf-8', errors='ignore')
 
         if data.startswith("M-SEARCH * HTTP/1.1") and \
                 ("ST: ssdp:all" in data or "ST: roku:ecp" in data):
