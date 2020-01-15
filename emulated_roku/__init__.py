@@ -420,8 +420,7 @@ class EmulatedRokuServer:
                                                   self.advertise_port),
             local_addr=(
                 MULTICAST_GROUP if self.bind_multicast else self.host_ip,
-                MULTICAST_PORT),
-            reuse_address=True)
+                MULTICAST_PORT))
 
     async def close(self) -> None:
         """Close the Roku API server and discovery endpoint."""
