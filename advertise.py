@@ -40,7 +40,7 @@ if __name__ == "__main__":
             local_addr=(
                 MULTICAST_GROUP if bind_multicast else multicast_ip,
                 MULTICAST_PORT),
-            reuse_address=True)
+            reuse_port=True)
 
 
     loop = get_event_loop()
