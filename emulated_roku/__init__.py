@@ -143,11 +143,6 @@ class EmulatedRokuDiscoveryProtocol(DatagramProtocol):
         """Set up the multicast socket and schedule the NOTIFY message."""
         self.transport = transport
 
-        sock = self.transport.get_extra_info('socket')  # type: socket
-        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
-                        socket.inet_aton(MULTICAST_GROUP) +
-                        socket.inet_aton(self.host_ip))
-
         _LOGGER.debug("multicast:started for %s/%s:%s/usn:%s",
                       MULTICAST_GROUP,
                       self.advertise_ip, self.advertise_port, self.roku_usn)
@@ -412,16 +407,26 @@ class EmulatedRokuServer:
 
         await api_endpoint.start()
 
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        
+        self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
+                        socket.inet_aton(MULTICAST_GROUP) +
+                        socket.inet_aton(self.host_ip))
+
+        if self.bind_multicast:
+            self.sock.bind(("", MULTICAST_PORT))
+        else:
+            self.sock.bind((self.host_ip, MULTICAST_PORT))
+
         # set up the SSDP discovery server
         _, self.discovery_proto = await self.loop.create_datagram_endpoint(
             lambda: EmulatedRokuDiscoveryProtocol(self.loop,
                                                   self.host_ip, self.roku_usn,
                                                   self.advertise_ip,
                                                   self.advertise_port),
-            local_addr=(
-                MULTICAST_GROUP if self.bind_multicast else self.host_ip,
-                MULTICAST_PORT),
-            reuse_port=True)
+            sock=self.sock)
 
     async def close(self) -> None:
         """Close the Roku API server and discovery endpoint."""

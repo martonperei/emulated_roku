@@ -6,6 +6,7 @@ if __name__ == "__main__":
     from asyncio import get_event_loop
     from argparse import ArgumentParser
     from os import name as osname
+    import socket
 
     from emulated_roku import EmulatedRokuDiscoveryProtocol, \
         get_local_ip, \
@@ -32,15 +33,25 @@ if __name__ == "__main__":
         multicast_ip = args.multicast_ip if args.multicast_ip else get_local_ip()
         bind_multicast = args.bind_multicast if args.bind_multicast else osname != "nt"
 
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
+                        socket.inet_aton(MULTICAST_GROUP) +
+                        socket.inet_aton(multicast_ip))
+
+        if bind_multicast:
+            sock.bind(("", MULTICAST_PORT))
+        else:
+            sock.bind((multicast_ip, MULTICAST_PORT))
+
         _, discovery_proto = await loop.create_datagram_endpoint(
             lambda: EmulatedRokuDiscoveryProtocol(loop,
                                                   multicast_ip, args.name,
                                                   args.api_ip,
                                                   args.api_port),
-            local_addr=(
-                MULTICAST_GROUP if bind_multicast else multicast_ip,
-                MULTICAST_PORT),
-            reuse_port=True)
+            sock=sock)
 
 
     loop = get_event_loop()
