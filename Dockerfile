@@ -17,6 +17,6 @@ RUN pip3 install --upgrade pip
 # multidict on alpine linux, required for emulated_roku
 RUN YARL_NO_EXTENSIONS=1 MULTIDICT_NO_EXTENSIONS=1 pip3 install emulated-roku
 
-COPY example.py /server.py
+COPY docker_server.py /server.py
 
 CMD ["python3", "-u", "/server.py"]

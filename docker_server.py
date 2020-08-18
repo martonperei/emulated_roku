@@ -1,6 +1,8 @@
 """
 Script to run emulated_roku server and interpret Harmony
 controller inputs over wifi.
+Includes a custom command handler that allows users to
+change outcomes of specific keypresses here.
 """
 import sys
 
@@ -17,9 +19,9 @@ class myCustomCommandHandler():
     def on_keypress(self, roku_usn: str, key: str) -> None:
         """Handle key press command."""
         if key == "Down":
-            print("task 1")
+            print("example task 1")
         elif key == "Info":
-            print("task 2")
+            print("example task 2")
         pass
 
     def launch(self, roku_usn: str, app_id: str) -> None:
