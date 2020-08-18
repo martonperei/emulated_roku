@@ -4,7 +4,7 @@ Other functionality such as input, search will not work.
 See the [example](example.py) on how to use.
 
 
-### Docker Integration and Deployment
+## Docker Integration and Deployment
 In this repository also lies a Dockerfile and docker-compose.yml file. The Docker image created by the Dockerfile
 allows for running a user specified `server.py` file. The image defaults to `example.py` but the image can have
 a volume mounted to read in another server file instead, for example `custom_command_handler_example.py`.
