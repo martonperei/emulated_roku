@@ -16,9 +16,9 @@ class myCustomCommandHandler():
 
     def on_keypress(self, roku_usn: str, key: str) -> None:
         """Handle key press command."""
-        if key == "down":
+        if key == "Down":
             print("task 1")
-        elif key == "info":
+        elif key == "Info":
             print("task 2")
         pass
 
