@@ -5,9 +5,7 @@ See the [example](example.py) on how to use.
 
 
 ## Docker Integration and Deployment
-In this repository also lies a Dockerfile and docker-compose.yml file. The Docker image created by the Dockerfile
-allows for running a user specified `server.py` file. The image defaults to `example.py` but the image can have
-a volume mounted to read in another server file instead, for example `custom_command_handler_example.py`.
+In this repository also lies a Dockerfile file. The Docker image created by the Dockerfile allows for running a user specified `server.py` file. The image defaults to `example.py` but the image can have a volume mounted to read in another server file instead, for example `custom_command_handler_example.py`.
 
 #### Image creation
 Users are able to build and push the image to Dockerhub with the following commands.
