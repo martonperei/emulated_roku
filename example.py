@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """Example script for using the Emulated Roku api."""
 
 if __name__ == "__main__":
