@@ -101,6 +101,8 @@ MULTICAST_PORT = 1900
 MULTICAST_RESPONSE = "HTTP/1.1 200 OK\r\n" \
                      "Cache-Control: max-age = {ttl}\r\n" \
                      "ST: roku:ecp\r\n" \
+                     "SERVER: Roku/12.0.0 UPnP/1.0 Roku/12.0.0\r\n" \
+                     "Ext: \r\n" \
                      "Location: http://{advertise_ip}:{advertise_port}/\r\n" \
                      "USN: uuid:roku:ecp:{usn}\r\n" \
                      "\r\n"
