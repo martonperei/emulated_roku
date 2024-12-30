@@ -264,7 +264,7 @@ class EmulatedRokuServer:
 
     def __init__(self, loop: AbstractEventLoop,
                  handler: EmulatedRokuCommandHandler,
-                 roku_usn: str, host_ip: str, listen_port: int,
+                 roku_usn: str, host_ip: str, listen_port: int = 8060,
                  advertise_ip: str = None, advertise_port: int = None,
                  bind_multicast: bool = None):
         """Initialize the Roku API server."""
