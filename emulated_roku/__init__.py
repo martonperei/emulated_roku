@@ -1,4 +1,7 @@
 """Emulated Roku library."""
+import re
+import socket
+from aiohttp import web
 from asyncio import (
     AbstractEventLoop, DatagramProtocol, DatagramTransport, Task, sleep)
 from base64 import b64decode
@@ -6,10 +9,7 @@ from ipaddress import ip_address
 from logging import getLogger
 from os import name as osname
 from random import randrange
-import socket
 from uuid import NAMESPACE_OID, uuid5
-
-from aiohttp import web
 
 _LOGGER = getLogger(__name__)
 
@@ -74,7 +74,7 @@ DEVICE_INFO_TEMPLATE = """<device-info>
 </device-info>
 """
 
-APPS_TEMPLATE = """<apps>
+APPS_TEMPLATE_DEFAULT = """<apps>
     <app id="1" version="1.0.0">Emulated App 1</app>
     <app id="2" version="1.0.0">Emulated App 2</app>
     <app id="3" version="1.0.0">Emulated App 3</app>
@@ -85,6 +85,12 @@ APPS_TEMPLATE = """<apps>
     <app id="8" version="1.0.0">Emulated App 8</app>
     <app id="9" version="1.0.0">Emulated App 9</app>
     <app id="10" version="1.0.0">Emulated App 10</app>
+</apps>
+"""
+
+APP_TEMPLATE = "<app id=\"{app_id}\" version=\"1.0.0\">{app_name}</app>\r\n"
+APPS_TEMPLATE = """<apps>
+   {}
 </apps>
 """
 
@@ -266,7 +272,7 @@ class EmulatedRokuServer:
                  handler: EmulatedRokuCommandHandler,
                  roku_usn: str, host_ip: str, listen_port: int,
                  advertise_ip: str = None, advertise_port: int = None,
-                 bind_multicast: bool = None):
+                 bind_multicast: bool = None, custom_apps: str = None):
         """Initialize the Roku API server."""
         self.loop = loop
         self.handler = handler
@@ -299,6 +305,11 @@ class EmulatedRokuServer:
         self.discovery_proto = None  # type: EmulatedRokuDiscoveryProtocol
         self.api_runner = None  # type: web.AppRunner
 
+        if custom_apps is not None:
+            self.custom_apps = build_custom_apps(custom_apps)
+        else:
+            self.custom_apps = None
+
     async def _roku_root_handler(self, request):
         return web.Response(body=self.roku_info,
                             headers={'Content-Type': 'text/xml'})
@@ -327,8 +338,12 @@ class EmulatedRokuServer:
         return web.Response()
 
     async def _roku_apps_handler(self, request):
-        return web.Response(body=APPS_TEMPLATE,
-                            headers={'Content-Type': 'text/xml'})
+        if self.custom_apps is not None:
+            return web.Response(body=self.custom_apps,
+                                headers={'Content-Type': 'text/xml'})
+        else:
+            return web.Response(body=APPS_TEMPLATE_DEFAULT,
+                                headers={'Content-Type': 'text/xml'})
 
     async def _roku_active_app_handler(self, request):
         return web.Response(body=ACTIVE_APP_TEMPLATE,
@@ -410,12 +425,12 @@ class EmulatedRokuServer:
         await api_endpoint.start()
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        
+
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         self.sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
-                        socket.inet_aton(MULTICAST_GROUP) +
-                        socket.inet_aton(self.host_ip))
+                             socket.inet_aton(MULTICAST_GROUP) +
+                             socket.inet_aton(self.host_ip))
 
         if self.bind_multicast:
             self.sock.bind(("", MULTICAST_PORT))
@@ -461,3 +476,21 @@ def get_local_ip() -> str:
             return '127.0.0.1'
     finally:
         sock.close()
+
+
+# Generates the application XML based on custom apps string
+def build_custom_apps(custom_apps: str) -> str:
+    app_append = ""
+    app_split = re.split(r'[\n,]', custom_apps)
+    for app in app_split:
+        if ":" in app:
+            app_values = app.split(":")
+            app_append += APP_TEMPLATE.format(app_id= app_values[0].strip(), app_name=app_values[1].strip())
+        else:
+            _LOGGER.warning("roku_api:invalid custom app value '%s'", app)
+
+    if app_append == "":
+        return None
+    else:
+        return APPS_TEMPLATE.format(app_append)
+

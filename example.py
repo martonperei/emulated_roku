@@ -12,7 +12,8 @@ if __name__ == "__main__":
     async def start_emulated_roku(loop):
         roku_api = emulated_roku.EmulatedRokuServer(
             loop, emulated_roku.EmulatedRokuCommandHandler(),
-            "test_roku", emulated_roku.get_local_ip(), 8060
+            "test_roku", emulated_roku.get_local_ip(), 8060,
+            custom_apps = None
         )
 
         await roku_api.start()
