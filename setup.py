@@ -3,13 +3,13 @@
 from setuptools import setup
 
 setup(name="emulated_roku",
-      version="0.3.0",
+      version="0.4.0",
       description="Library to emulate a roku server to serve as a proxy"
                   "for remotes such as Harmony",
       url="https://gitlab.com/mindig.marton/emulated_roku",
       download_url="https://gitlab.com"
                    "/mindig.marton/emulated_roku"
-                   "/repository/archive.zip?ref=0.3.0",
+                   "/repository/archive.zip?ref=0.4.0",
       author="mindigmarton",
       license="MIT",
       packages=["emulated_roku"],
