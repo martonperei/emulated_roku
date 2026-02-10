@@ -19,7 +19,7 @@ if __name__ == "__main__":
         await roku_api.start()
 
 
-    loop = asyncio.get_event_loop()
+    loop = asyncio.new_event_loop()
 
     loop.run_until_complete(start_emulated_roku(loop))
 

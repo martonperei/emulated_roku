@@ -3,7 +3,7 @@
 if __name__ == "__main__":
     import logging
 
-    from asyncio import get_event_loop
+    import asyncio
     from argparse import ArgumentParser
     from os import name as osname
     import socket
@@ -54,7 +54,7 @@ if __name__ == "__main__":
             sock=sock)
 
 
-    loop = get_event_loop()
+    loop = asyncio.new_event_loop()
 
     loop.run_until_complete(start_emulated_roku(loop))
 
