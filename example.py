@@ -9,18 +9,14 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.DEBUG)
 
-    async def start_emulated_roku(loop):
+    async def start_emulated_roku():
         roku_api = emulated_roku.EmulatedRokuServer(
-            loop, emulated_roku.EmulatedRokuCommandHandler(),
+            emulated_roku.EmulatedRokuCommandHandler(),
             "test_roku", emulated_roku.get_local_ip(), 8060,
             custom_apps = None
         )
 
         await roku_api.start()
+        await asyncio.Event().wait()
 
-
-    loop = asyncio.get_event_loop()
-
-    loop.run_until_complete(start_emulated_roku(loop))
-
-    loop.run_forever()
+    asyncio.run(start_emulated_roku())

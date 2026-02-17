@@ -41,6 +41,7 @@ htmlcov/
 .coverage
 .coverage.*
 .cache
+.pytest_cache/
 nosetests.xml
 coverage.xml
 *,cover
@@ -91,3 +92,6 @@ ENV/
 .ropeproject
 
 .idea/
+.DS_Store
+.ruff_cache/
+.mypy_cache/

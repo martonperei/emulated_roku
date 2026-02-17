@@ -1,0 +1,33 @@
+name: Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.14"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: pip install .[test]
+
+      - name: Run linter
+        run: ruff check .
+
+      - name: Run type check
+        run: python -m mypy emulated_roku
+
+      - name: Run tests
+        run: pytest tests/ -v

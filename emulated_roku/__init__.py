@@ -1,9 +1,20 @@
 """Emulated Roku library."""
-import re
+from importlib.metadata import version
+
+__version__ = version(__name__)
+
+__all__ = [
+    "EmulatedRokuCommandHandler",
+    "EmulatedRokuDiscoveryProtocol",
+    "EmulatedRokuServer",
+    "build_custom_apps",
+    "get_local_ip",
+]
+
 import socket
 from aiohttp import web
-from asyncio import (
-    AbstractEventLoop, DatagramProtocol, DatagramTransport, Task, sleep)
+import asyncio
+from asyncio import DatagramProtocol, sleep
 from base64 import b64decode
 from ipaddress import ip_address
 from logging import getLogger
@@ -99,7 +110,7 @@ ACTIVE_APP_TEMPLATE = """<active-app>
 </active-app>
 """
 
-MUTLICAST_TTL = 300
+MULTICAST_TTL = 300
 MULTICAST_MAX_DELAY = 5
 MULTICAST_GROUP = "239.255.255.250"
 MULTICAST_PORT = 1900
@@ -126,26 +137,24 @@ MULTICAST_NOTIFY = "NOTIFY * HTTP/1.1\r\n" \
 class EmulatedRokuDiscoveryProtocol(DatagramProtocol):
     """Roku SSDP Discovery protocol."""
 
-    def __init__(self, loop: AbstractEventLoop,
-                 host_ip: str, roku_usn: str,
+    def __init__(self, host_ip: str, roku_usn: str,
                  advertise_ip: str, advertise_port: int):
         """Initialize the protocol."""
-        self.loop = loop
         self.host_ip = host_ip
         self.roku_usn = roku_usn
         self.advertise_ip = advertise_ip
         self.advertise_port = advertise_port
         self.ssdp_response = MULTICAST_RESPONSE.format(
             advertise_ip=advertise_ip, advertise_port=advertise_port,
-            usn=roku_usn, ttl=MUTLICAST_TTL)
+            usn=roku_usn, ttl=MULTICAST_TTL)
 
         self.notify_broadcast = MULTICAST_NOTIFY.format(
             advertise_ip=advertise_ip, advertise_port=advertise_port,
             multicast_ip=MULTICAST_GROUP, multicast_port=MULTICAST_PORT,
-            usn=roku_usn, ttl=MUTLICAST_TTL)
+            usn=roku_usn, ttl=MULTICAST_TTL)
 
-        self.notify_task = None  # type: Task
-        self.transport = None  # type: DatagramTransport
+        self.notify_task: asyncio.Task | None = None
+        self.transport: asyncio.DatagramTransport | None = None
 
     def connection_made(self, transport):
         """Set up the multicast socket and schedule the NOTIFY message."""
@@ -155,7 +164,7 @@ class EmulatedRokuDiscoveryProtocol(DatagramProtocol):
                       MULTICAST_GROUP,
                       self.advertise_ip, self.advertise_port, self.roku_usn)
 
-        self.notify_task = self.loop.create_task(self._multicast_notify())
+        self.notify_task = asyncio.create_task(self._multicast_notify())
 
     def connection_lost(self, exc):
         """Clean up the protocol."""
@@ -173,7 +182,7 @@ class EmulatedRokuDiscoveryProtocol(DatagramProtocol):
             self.transport.sendto(self.notify_broadcast.encode(),
                                   (MULTICAST_GROUP, MULTICAST_PORT))
 
-            await sleep(MUTLICAST_TTL)
+            await sleep(MULTICAST_TTL)
 
     def _multicast_reply(self, data: str, addr: tuple) -> None:
         """Reply to a discovery message."""
@@ -191,16 +200,19 @@ class EmulatedRokuDiscoveryProtocol(DatagramProtocol):
                 ("ST: ssdp:all" in data or "ST: roku:ecp" in data):
             _LOGGER.debug("multicast:request %s\n%s", addr, data)
 
-            mx_value = data.find("MX:")
+            mx_delay = MULTICAST_MAX_DELAY
+            for line in data.splitlines():
+                if line.upper().startswith("MX:"):
+                    mx_raw = line.split(":", 1)[1].strip()
+                    try:
+                        mx_delay = max(0, min(int(mx_raw), MULTICAST_MAX_DELAY))
+                    except ValueError:
+                        mx_delay = MULTICAST_MAX_DELAY
+                    break
 
-            if mx_value != -1:
-                mx_delay = int(data[mx_value + 4]) % (MULTICAST_MAX_DELAY + 1)
+            delay = randrange(0, mx_delay + 1, 1)
 
-                delay = randrange(0, mx_delay + 1, 1)
-            else:
-                delay = randrange(0, MULTICAST_MAX_DELAY + 1, 1)
-
-            self.loop.call_later(delay, self._multicast_reply, data, addr)
+            asyncio.get_running_loop().call_later(delay, self._multicast_reply, data, addr)
 
     def close(self) -> None:
         """Close the discovery transport."""
@@ -268,20 +280,20 @@ class EmulatedRokuServer:
     Handles the API HTTP server and UPNP discovery.
     """
 
-    def __init__(self, loop: AbstractEventLoop,
-                 handler: EmulatedRokuCommandHandler,
+    def __init__(self, handler: EmulatedRokuCommandHandler,
                  roku_usn: str, host_ip: str, listen_port: int,
-                 advertise_ip: str = None, advertise_port: int = None,
-                 bind_multicast: bool = None, custom_apps: str = None):
+                 advertise_ip: str | None = None,
+                 advertise_port: int | None = None,
+                 bind_multicast: bool | None = None,
+                 custom_apps: str | None = None):
         """Initialize the Roku API server."""
-        self.loop = loop
         self.handler = handler
         self.roku_usn = roku_usn
         self.host_ip = host_ip
         self.listen_port = listen_port
 
-        self.advertise_ip = advertise_ip or host_ip
-        self.advertise_port = advertise_port or listen_port
+        self.advertise_ip = host_ip if advertise_ip is None else advertise_ip
+        self.advertise_port = listen_port if advertise_port is None else advertise_port
 
         self.allowed_hosts = (
             self.host_ip,
@@ -289,6 +301,7 @@ class EmulatedRokuServer:
             self.advertise_ip,
             "{}:{}".format(self.advertise_ip, self.advertise_port))
 
+        self.bind_multicast: bool
         if bind_multicast is None:
             # do not bind multicast group on windows by default
             self.bind_multicast = osname != "nt"
@@ -302,8 +315,8 @@ class EmulatedRokuServer:
         self.device_info = DEVICE_INFO_TEMPLATE.format(uuid=self.roku_uuid,
                                                        usn=self.roku_usn)
 
-        self.discovery_proto = None  # type: EmulatedRokuDiscoveryProtocol
-        self.api_runner = None  # type: web.AppRunner
+        self.discovery_proto: EmulatedRokuDiscoveryProtocol | None = None
+        self.api_runner: web.AppRunner | None = None
 
         if custom_apps is not None:
             self.custom_apps = build_custom_apps(custom_apps)
@@ -370,7 +383,7 @@ class EmulatedRokuServer:
             raise web.HTTPForbidden
 
         # only allow local network access
-        if not ip_address(request.remote).is_private:
+        if request.remote is None or not ip_address(request.remote).is_private:
             _LOGGER.warning("Rejected non-local access from remote %s",
                             request.remote)
             raise web.HTTPForbidden
@@ -378,8 +391,7 @@ class EmulatedRokuServer:
         return await handler(request)
 
     async def _setup_app(self) -> web.AppRunner:
-        app = web.Application(loop=self.loop,
-                              middlewares=[self._check_remote_and_host_ip])
+        app = web.Application(middlewares=[self._check_remote_and_host_ip])
 
         app.router.add_route('GET', "/", self._roku_root_handler)
 
@@ -438,9 +450,9 @@ class EmulatedRokuServer:
             self.sock.bind((self.host_ip, MULTICAST_PORT))
 
         # set up the SSDP discovery server
-        _, self.discovery_proto = await self.loop.create_datagram_endpoint(
-            lambda: EmulatedRokuDiscoveryProtocol(self.loop,
-                                                  self.host_ip, self.roku_usn,
+        loop = asyncio.get_running_loop()
+        _, self.discovery_proto = await loop.create_datagram_endpoint(
+            lambda: EmulatedRokuDiscoveryProtocol(self.host_ip, self.roku_usn,
                                                   self.advertise_ip,
                                                   self.advertise_port),
             sock=self.sock)
@@ -463,29 +475,25 @@ class EmulatedRokuServer:
 def get_local_ip() -> str:
     """Try to determine the local IP address of the machine."""
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-        # Use Google Public DNS server to determine own IP
-        sock.connect(('8.8.8.8', 80))
-
-        return sock.getsockname()[0]  # type: ignore
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            # Use Google Public DNS server to determine own IP
+            sock.connect(('8.8.8.8', 80))
+            return str(sock.getsockname()[0])
     except socket.error:
         try:
             return socket.gethostbyname(socket.gethostname())
         except socket.gaierror:
             return '127.0.0.1'
-    finally:
-        sock.close()
 
 
 # Generates the application XML based on custom apps string
-def build_custom_apps(custom_apps: str) -> str:
+def build_custom_apps(custom_apps: str) -> str | None:
     app_append = ""
-    app_split = re.split(r'[\n,]', custom_apps)
+    app_split = custom_apps.replace("\r", "\n").replace(",", "\n").split("\n")
     for app in app_split:
         if ":" in app:
-            app_values = app.split(":")
-            app_append += APP_TEMPLATE.format(app_id= app_values[0].strip(), app_name=app_values[1].strip())
+            app_id, app_name = app.split(":", 1)
+            app_append += APP_TEMPLATE.format(app_id=app_id.strip(), app_name=app_name.strip())
         else:
             _LOGGER.warning("roku_api:invalid custom app value '%s'", app)
 
@@ -493,4 +501,3 @@ def build_custom_apps(custom_apps: str) -> str:
         return None
     else:
         return APPS_TEMPLATE.format(app_append)
-
