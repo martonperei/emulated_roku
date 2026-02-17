@@ -2,7 +2,7 @@
 import socket
 from aiohttp import web
 import asyncio
-from asyncio import DatagramProtocol, DatagramTransport, Task, sleep
+from asyncio import DatagramProtocol, sleep
 from base64 import b64decode
 from ipaddress import ip_address
 from logging import getLogger
@@ -141,8 +141,8 @@ class EmulatedRokuDiscoveryProtocol(DatagramProtocol):
             multicast_ip=MULTICAST_GROUP, multicast_port=MULTICAST_PORT,
             usn=roku_usn, ttl=MULTICAST_TTL)
 
-        self.notify_task = None  # type: Task
-        self.transport = None  # type: DatagramTransport
+        self.notify_task: asyncio.Task | None = None
+        self.transport: asyncio.DatagramTransport | None = None
 
     def connection_made(self, transport):
         """Set up the multicast socket and schedule the NOTIFY message."""
