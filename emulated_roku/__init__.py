@@ -383,7 +383,7 @@ class EmulatedRokuServer:
             raise web.HTTPForbidden
 
         # only allow local network access
-        if not ip_address(request.remote).is_private:
+        if request.remote is None or not ip_address(request.remote).is_private:
             _LOGGER.warning("Rejected non-local access from remote %s",
                             request.remote)
             raise web.HTTPForbidden
