@@ -1,4 +1,16 @@
 """Emulated Roku library."""
+from importlib.metadata import version
+
+__version__ = version(__name__)
+
+__all__ = [
+    "EmulatedRokuCommandHandler",
+    "EmulatedRokuDiscoveryProtocol",
+    "EmulatedRokuServer",
+    "build_custom_apps",
+    "get_local_ip",
+]
+
 import socket
 from aiohttp import web
 import asyncio
