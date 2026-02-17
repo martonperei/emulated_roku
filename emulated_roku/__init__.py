@@ -282,8 +282,10 @@ class EmulatedRokuServer:
 
     def __init__(self, handler: EmulatedRokuCommandHandler,
                  roku_usn: str, host_ip: str, listen_port: int,
-                 advertise_ip: str = None, advertise_port: int = None,
-                 bind_multicast: bool = None, custom_apps: str = None):
+                 advertise_ip: str | None = None,
+                 advertise_port: int | None = None,
+                 bind_multicast: bool | None = None,
+                 custom_apps: str | None = None):
         """Initialize the Roku API server."""
         self.handler = handler
         self.roku_usn = roku_usn
@@ -299,6 +301,7 @@ class EmulatedRokuServer:
             self.advertise_ip,
             "{}:{}".format(self.advertise_ip, self.advertise_port))
 
+        self.bind_multicast: bool
         if bind_multicast is None:
             # do not bind multicast group on windows by default
             self.bind_multicast = osname != "nt"
@@ -312,8 +315,8 @@ class EmulatedRokuServer:
         self.device_info = DEVICE_INFO_TEMPLATE.format(uuid=self.roku_uuid,
                                                        usn=self.roku_usn)
 
-        self.discovery_proto = None  # type: EmulatedRokuDiscoveryProtocol
-        self.api_runner = None  # type: web.AppRunner
+        self.discovery_proto: EmulatedRokuDiscoveryProtocol | None = None
+        self.api_runner: web.AppRunner | None = None
 
         if custom_apps is not None:
             self.custom_apps = build_custom_apps(custom_apps)
@@ -475,7 +478,7 @@ def get_local_ip() -> str:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             # Use Google Public DNS server to determine own IP
             sock.connect(('8.8.8.8', 80))
-            return sock.getsockname()[0]  # type: ignore
+            return str(sock.getsockname()[0])
     except socket.error:
         try:
             return socket.gethostbyname(socket.gethostname())

@@ -26,5 +26,8 @@ jobs:
       - name: Run linter
         run: ruff check .
 
+      - name: Run type check
+        run: python -m mypy emulated_roku
+
       - name: Run tests
         run: pytest tests/ -v
