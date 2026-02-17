@@ -3,7 +3,7 @@
 if __name__ == "__main__":
     import logging
 
-    from asyncio import get_event_loop
+    import asyncio
     from argparse import ArgumentParser
     from os import name as osname
     import socket
@@ -29,12 +29,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
 
-    async def start_emulated_roku(loop):
+    async def start_emulated_roku():
         multicast_ip = args.multicast_ip if args.multicast_ip else get_local_ip()
         bind_multicast = args.bind_multicast if args.bind_multicast else osname != "nt"
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        
+
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP,
@@ -46,16 +46,13 @@ if __name__ == "__main__":
         else:
             sock.bind((multicast_ip, MULTICAST_PORT))
 
+        loop = asyncio.get_running_loop()
         _, discovery_proto = await loop.create_datagram_endpoint(
-            lambda: EmulatedRokuDiscoveryProtocol(loop,
-                                                  multicast_ip, args.name,
+            lambda: EmulatedRokuDiscoveryProtocol(multicast_ip, args.name,
                                                   args.api_ip,
                                                   args.api_port),
             sock=sock)
 
+        await asyncio.Event().wait()
 
-    loop = get_event_loop()
-
-    loop.run_until_complete(start_emulated_roku(loop))
-
-    loop.run_forever()
+    asyncio.run(start_emulated_roku())
