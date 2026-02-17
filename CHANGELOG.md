@@ -1,10 +1,16 @@
 # Changelog
 
+## 0.5.1
+
+### Fixed
+- Lowered Python version floor from 3.14 to 3.12 (no 3.14-specific features were used).
+- Added Python 3.12 and 3.13 to CI test matrix.
+
 ## 0.5.0
 
 ### Breaking changes
 - Removed deprecated `loop` parameter from `EmulatedRokuServer` and `EmulatedRokuDiscoveryProtocol`. Uses `asyncio.get_running_loop()` / `asyncio.create_task()` directly.
-- Requires Python 3.14+.
+- Requires Python 3.12+.
 
 ### Fixed
 - Fixed `MULTICAST_TTL` constant typo (was `MUTLICAST_TTL`).

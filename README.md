@@ -8,7 +8,7 @@ Library to emulate the Roku API for Home Assistant and other automation tools. D
 pip install emulated_roku
 ```
 
-Requires Python 3.14+.
+Requires Python 3.12+.
 
 ## Usage
 
