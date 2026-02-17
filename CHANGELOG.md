@@ -16,7 +16,9 @@
 
 ### Added
 - Test suite with pytest + pytest-aiohttp (47 tests).
-- GitHub Actions CI workflow for tests.
+- GitHub Actions CI workflow for tests and linting.
+- Ruff linter integration.
+- Publish workflow: `twine check` validation and smoke test for wheel install.
 - `py.typed` marker for PEP 561.
 - `[test]` optional dependency group.
 
